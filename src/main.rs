@@ -23,7 +23,6 @@ fn main() -> io::Result<()> {
     );
 
     let mut editor = Editor{ content : vec![]};
-    
         
     enable_raw_mode()?;
     if let Err(e) = editor.run() {
@@ -46,6 +45,12 @@ fn remove_char(start: usize, stop: usize, s: &String) -> String {
 
 struct Editor{    
     content : Vec<String>,    
+}
+
+impl Drop for Editor{
+    fn drop(&mut self) {
+        _ = execute!(io::stdout(),Clear(ClearType::All),MoveTo(0,0));
+    }
 }
 
 impl Editor {
@@ -115,10 +120,11 @@ impl Editor {
                 } 
                 _ => ()
             }
-        }else if event.modifiers == KeyModifiers::NONE {
+        }else if event.modifiers != KeyModifiers::ALT {
             match event.code {
                 KeyCode::Char(c) =>{
-                    self.insert_character(c);
+                    self.insert_character(&c.to_string());
+                    self.update()
                 },
                 KeyCode::Right => {
                     let (cols,_) = terminal::size().unwrap();
@@ -157,6 +163,10 @@ impl Editor {
                     _ = execute!(io::stdout(),MoveTo(0,cursor_row+1));                    
                     self.update();
                 },
+                KeyCode::Tab =>{                    
+                    self.insert_character(&"    ");
+                    self.update()
+                }
                 KeyCode::Backspace =>{
                     let (cursor_col,cursor_row) = position().unwrap();                                                                                      
                     if cursor_col == 0 {
@@ -206,7 +216,7 @@ impl Editor {
                     loop{                                                                        
                         match iter.nth_back(i){
                             Some(c) if ! char::is_whitespace(c)=>{                                
-                                _ = execute!(io::stdout(),MoveTo((line.len() - i - 1) as u16 ,cursor_row as u16));
+                                _ = execute!(io::stdout(),MoveTo((line.len() - i) as u16 ,cursor_row as u16));
                                 break;
                             },        
                             None=> break,                    
@@ -233,20 +243,19 @@ impl Editor {
         self.content.remove((line_index + 1) as usize);
     }
 
-    fn insert_character(&mut self, ch: char){
+    fn insert_character(&mut self, ch: &str){
         let (cursor_col,cursor_row) = position().unwrap();     
         let current_line = cursor_row as usize;
         if self.content[current_line].len() == 0{
-            self.content[current_line].push(ch);
+            self.content[current_line].push_str(ch);
         }else{
             if cursor_col  < self.content[current_line].len() as u16 {
-                self.content[current_line].insert(cursor_col as usize,ch);
+                self.content[current_line].insert_str(cursor_col as usize,ch);
             }else{
-                self.content[current_line].push(ch);
+                self.content[current_line].push_str(ch);
             }            
         }                
-        self.update();
-        _ = execute!(io::stdout(),MoveRight(1));
+        _ = execute!(io::stdout(),MoveRight(ch.len() as u16));                
     }
 
     fn split_line(&mut self,line_index: usize,character_index: usize){        
