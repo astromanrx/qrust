@@ -1,11 +1,10 @@
 use std::io;
-use std::io::stdout;
-use crossterm::cursor::{position, DisableBlinking, EnableBlinking, MoveDown, MoveLeft, MoveRight, MoveTo, MoveUp};
-use crossterm::terminal::{Clear, ClearType};
+use crossterm::cursor::{position, EnableBlinking, Hide, MoveLeft, MoveRight, MoveTo, RestorePosition, SavePosition, Show};
+use crossterm::terminal::{self, Clear, ClearType};
 use crossterm::event::{KeyEvent, KeyEventKind, KeyModifiers};
 use crossterm::{
     execute,
-    style::{Color, Print, ResetColor, SetBackgroundColor},
+    style::Print,
     event::{read, Event, KeyCode},
     terminal::{disable_raw_mode, enable_raw_mode},
 };
@@ -35,18 +34,50 @@ fn main() -> io::Result<()> {
     Ok(())
 }
 
-struct Editor{
+fn remove_char(start: usize, stop: usize, s: &String) -> String {
+    let mut result = "".to_string();
+    for (i, c) in s.chars().enumerate() {
+        if start > i || stop < i + 1 {
+            result.push(c);
+        }
+    }
+    result
+}
+
+struct Editor{    
     content : Vec<String>,    
 }
 
 impl Editor {
-    fn run(&mut self) -> io::Result<()> {
+    fn resize(&mut self, cols : usize ,rows: usize){
+        if rows> self.content.len() {
+            for _ in 0.. (rows - self.content.len()){
+                self.content.push(String::from(""));
+            }
+        }
+        
+        if rows< self.content.len() {
+            for _ in 0.. (self.content.len() - rows){
+                self.content.pop();
+            }
+        }
+    }
+
+    fn run(&mut self) -> io::Result<()> {    
+        match crossterm::terminal::size(){
+            Err(error)=> println!("Failed to get terminal size: {}",error),
+            Ok(terminal_size)=>{
+                let (cols,rows) = terminal_size;
+                self.resize(cols as usize, rows as usize);
+                self.update();    
+            }
+        }
         
         loop {
             let event = read()?;
             match event {
                 Event::Resize(cols,rows) =>{
-                    
+                    self.resize(cols as usize, rows as usize)
                 },
     
                 Event::Key(event) if event.kind == KeyEventKind::Press =>{
@@ -60,16 +91,24 @@ impl Editor {
         Ok(())
     }    
 
+    fn update(&self){
+        _ = execute!(io::stdout(),SavePosition,Hide,Clear(ClearType::All),MoveTo(0,0),Print(self.content.join(LINE_ENDING)),RestorePosition,Show)
+    }
+
+    fn save(&self){
+        match fs::write("",self.content.join(LINE_ENDING)) {
+            Err(error)=>println!("Unable to save file, Error: {}",error),
+            Ok(_)=> println!("{}","Saving ...")                                        
+        } ;                                                                      
+    }
+
     fn handle_key(&mut self,event:KeyEvent) -> bool{
         if event.modifiers == KeyModifiers::CONTROL {
             match event.code {
                 KeyCode::Char(k) =>{
                     match k.to_ascii_uppercase() {                                
                         'S' => {
-                            match fs::write("",self.content.join(LINE_ENDING)) {
-                                Err(error)=>println!("Unable to save file, Error: {}",error),
-                                Ok(_)=> println!("{}","Saving ...")                                        
-                            } ;                                                                        
+                            self.save()
                         },                               
                         _ =>()
                     }
@@ -79,57 +118,147 @@ impl Editor {
         }else if event.modifiers == KeyModifiers::NONE {
             match event.code {
                 KeyCode::Char(c) =>{
-                    _ = execute!(
-                        stdout(),
-                        SetBackgroundColor(Color::DarkGrey),
-                        Print(c),
-                        ResetColor
-                    );
+                    self.insert_character(c);
                 },
                 KeyCode::Right => {
-                    _ = execute!(io::stdout(),MoveRight(1))
+                    let (cols,_) = terminal::size().unwrap();
+                    let (cursor_column,_) = position().unwrap();
+                    if  cursor_column< cols{
+                        _ = execute!(io::stdout(),MoveRight(1));
+                    }                    
                 },
-                KeyCode::Left => {
-                    _ = execute!(io::stdout(),MoveLeft(1))
+                KeyCode::Left => {                    
+                    let (cursor_column,_) = position().unwrap();
+                    if  cursor_column>0 {
+                        _ = execute!(io::stdout(),MoveLeft(1));
+                    }                    
                 },
-                KeyCode::Up => {
-                    _ = execute!(io::stdout(),MoveUp(1))
+                KeyCode::Up => {                    
+                    let (cursor_col,cursor_row) = position().unwrap();
+                    if cursor_row > 0{        
+                        let line_below_length = self.content[(cursor_row - 1) as usize].len() as u16;
+                        if cursor_col > line_below_length {
+                            _ = execute!(io::stdout(),MoveTo(line_below_length,cursor_row-1));
+                        }else{
+                            _ = execute!(io::stdout(),MoveTo(line_below_length,cursor_row-1));
+                        }                        
+                    }                        
                 },
                 KeyCode::Down => {                        
-                    _ = execute!(io::stdout(),MoveDown(1))
+                    let (_,rows) = terminal::size().unwrap();
+                    let (_,cursor_row) = position().unwrap();
+                    if  cursor_row< rows {
+                        _ = execute!(io::stdout(),MoveTo(self.content[(cursor_row + 1) as usize].len() as u16,cursor_row + 1));
+                    }                    
                 },
-                KeyCode::Enter => {
-                    println!();
-                    self.content.push(String::from(""));
+                KeyCode::Enter => {                    
+                    let (cursor_col,cursor_row) = position().unwrap();
+                    self.split_line(cursor_row as usize,cursor_col as usize);                    
+                    _ = execute!(io::stdout(),MoveTo(0,cursor_row+1));                    
+                    self.update();
                 },
                 KeyCode::Backspace =>{
-                    _ = execute!(io::stdout(),DisableBlinking,MoveLeft(1),Print(' '),EnableBlinking,MoveLeft(1))
+                    let (cursor_col,cursor_row) = position().unwrap();                                                                                      
+                    if cursor_col == 0 {
+                        if cursor_row > 0 {
+                            let previous_line = cursor_row - 1;
+                            self.merge_lines(previous_line );
+                            _ = execute!(io::stdout(),MoveTo(self.content[previous_line as usize].len() as u16 + 1, previous_line));
+                        }                        
+                    }else{
+                        self.content[cursor_row as usize] = remove_char((cursor_col - 1) as usize,cursor_col as usize,&self.content[cursor_row as usize]);
+                    }
+                    _ = execute!(io::stdout(),MoveLeft(1));
+                    self.update();
+                                                        
                 },
-                KeyCode::Delete =>{
-
+                KeyCode::Delete =>{               
+                    let (cursor_col,cursor_row) = position().unwrap();                          
+                    if cursor_col + 1 > self.content[cursor_row as usize].len() as u16 {
+                        self.merge_lines(cursor_row);
+                    }else{                        
+                        self.content[cursor_row as usize] = remove_char(cursor_col as usize,(cursor_col+1) as usize,&self.content[cursor_row as usize]);
+                    }
+                    self.update();
                 },                    
                 KeyCode::Home =>{
-                    match position() {
-                        Ok(pos) =>{
-                            let (col,row) = pos;
-                            _ = execute!(io::stdout(),MoveTo(0,row));
-                        },
-                        _=>()
+                    let (_,cursor_row) = position().unwrap();
+                    let line = &self.content[cursor_row as usize];
+                    let mut iter = line.chars();
+                    let mut i = 0;
+                    loop{                                                                                                
+                        match iter.next(){
+                            Some(c) if ! char::is_whitespace(c)=>{                                
+                                _ = execute!(io::stdout(),MoveTo(i as u16 ,cursor_row as u16));
+                                break;
+                            },                            
+                            None=> break,
+                            _=>()
+                        }                  
+                        i += 1;       
                     }
-                    
                 },
                 KeyCode::End =>{
-
+                    let (_,cursor_row) = position().unwrap();
+                    let line: &String = &self.content[cursor_row as usize];
+                    let mut iter = line.chars();                    
+                    let mut i: usize = 0;
+                    loop{                                                                        
+                        match iter.nth_back(i){
+                            Some(c) if ! char::is_whitespace(c)=>{                                
+                                _ = execute!(io::stdout(),MoveTo((line.len() - i - 1) as u16 ,cursor_row as u16));
+                                break;
+                            },        
+                            None=> break,                    
+                            _=>()
+                        }                  
+                        i += 1;       
+                    }                    
                 },
                 _ => ()
             }         
-        }
-               
+        }               
 
         if event.code == KeyCode::Esc {
             return false
         }
         true
+    }    
+
+    fn merge_lines(&mut self,line_index: u16){
+        let mut this_line = self.content[(line_index) as usize].clone();
+        let next_line = self.content[(line_index + 1) as usize].as_str();                        
+        this_line.push_str(next_line);
+        self.content[line_index as usize] = this_line;                                               
+        self.content.remove((line_index + 1) as usize);
+    }
+
+    fn insert_character(&mut self, ch: char){
+        let (cursor_col,cursor_row) = position().unwrap();     
+        let current_line = cursor_row as usize;
+        if self.content[current_line].len() == 0{
+            self.content[current_line].push(ch);
+        }else{
+            if cursor_col  < self.content[current_line].len() as u16 {
+                self.content[current_line].insert(cursor_col as usize,ch);
+            }else{
+                self.content[current_line].push(ch);
+            }            
+        }                
+        self.update();
+        _ = execute!(io::stdout(),MoveRight(1));
+    }
+
+    fn split_line(&mut self,line_index: usize,character_index: usize){        
+        let this_line = self.content[line_index].clone();                
+        if this_line.len() == 0 {
+            self.content.insert(line_index + 1,String::from(""));    
+        }else{
+            let (first_part,second_part) = this_line.split_at(character_index);
+            self.content[line_index] = String::from(first_part);
+            self.content.insert(line_index + 1,String::from(second_part));
+            self.content.pop();
+        }        
     }
 }
 
