@@ -15,6 +15,8 @@ const LINE_ENDING: &'static str = "\r\n";
 #[cfg(not(windows))]
 const LINE_ENDING: &'static str = "\n";
 
+const TAB_SIZE : usize = 4;
+
 fn main() -> io::Result<()> {
     _ = execute!(io::stdout(),Clear(ClearType::All),MoveTo(0,0));
     _ = execute!(
@@ -164,7 +166,7 @@ impl Editor {
                     self.update();
                 },
                 KeyCode::Tab =>{                    
-                    self.insert_character(&"    ");
+                    self.insert_character(&" ".repeat(TAB_SIZE));
                     self.update()
                 }
                 KeyCode::Backspace =>{
