@@ -156,22 +156,22 @@ impl Editor {
                 KeyCode::Down => {                        
                     let (_,rows) = terminal::size().unwrap();
                     let (_,cursor_row) = position().unwrap();
-                    if  cursor_row< rows {
+                    if  cursor_row< rows-1 {
                         _ = execute!(io::stdout(),MoveTo(self.content[(cursor_row + 1) as usize].len() as u16,cursor_row + 1));
                     }                    
                 },
                 KeyCode::Enter => {                    
-                    let (cursor_col,cursor_row) = position().unwrap();                                                            
+                    let (cursor_col,cursor_row) = position().unwrap();
                     match self.get_line_leading_spaces(cursor_row as usize){
-                        Some(spaces) if spaces>0 => {
-                            self.split_line(cursor_row as usize,cursor_col as usize," ".repeat(spaces as usize).as_ref());
-                            _ = execute!(io::stdout(),MoveTo(spaces,cursor_row + 1))
+                        Some(spaces) if spaces>0 => {                                
+                            self.split_line(cursor_row as usize,cursor_col as usize," ".repeat(spaces as usize).as_ref());                                
+                            _ = execute!(io::stdout(),MoveTo(spaces,cursor_row + 1))                                
                         },
                         _ => {
                             self.split_line(cursor_row as usize,cursor_col as usize,"");
                             _ = execute!(io::stdout(),MoveTo(0,cursor_row + 1))                            
                         }
-                    }                    
+                    }                                                                                   
                     self.update();
                 },
                 KeyCode::Tab =>{                    
@@ -292,15 +292,15 @@ impl Editor {
     fn split_line(&mut self,line_index: usize,character_index: usize,new_line_prefix: &str ){        
         let this_line = self.content[line_index].clone();                
         if this_line.len() == 0 {
-            self.content.insert(line_index + 1,String::from(""));    
+            self.content.insert(line_index + 1,String::from(""));                
         }else{
             let (first_part,second_part) = this_line.split_at(character_index);
             self.content[line_index] = String::from(first_part);
             let mut s = String::from(second_part);
             s.insert_str(0,new_line_prefix);
-            self.content.insert(line_index + 1,s);
-            self.content.pop();
+            self.content.insert(line_index + 1,s);            
         }
+        self.content.pop();
     }
 }
 
