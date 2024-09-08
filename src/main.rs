@@ -1,5 +1,5 @@
 use std::io;
-use crossterm::cursor::{self, position, EnableBlinking, Hide, MoveLeft, MoveRight, MoveTo, RestorePosition, SavePosition, Show};
+use crossterm::cursor::{position, EnableBlinking, Hide, MoveLeft, MoveRight, MoveTo, RestorePosition, SavePosition, Show};
 use crossterm::terminal::{self, Clear, ClearType};
 use crossterm::event::{KeyEvent, KeyEventKind, KeyModifiers};
 use crossterm::{
@@ -56,7 +56,7 @@ impl Drop for Editor{
 }
 
 impl Editor {
-    fn resize(&mut self, cols : usize ,rows: usize){
+    fn resize(&mut self, _ : usize ,rows: usize){
         if rows> self.content.len() {
             for _ in 0.. (rows - self.content.len()){
                 self.content.push(String::from(""));
